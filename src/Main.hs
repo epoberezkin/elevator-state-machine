@@ -2,19 +2,17 @@
 
 module Main where
 
-import Data.Singletons
-import Data.Singletons.Prelude
-import Data.Singletons.TypeLits
 import Elevator
 import Numeric.Natural
+import System.IO
 
 main :: IO ()
 main = do
   -- d :: DoorState <- getData "door state:"
   -- m :: MoveState <- getData "move state:"
   -- f :: Natural <- getData "floor:"
-  let state = mkSomeState (Opened, Stopped, 1)
-  print state
+  -- let state = mkSomeState d m f
+  let state = mkSomeState Opened Stopped 1
   runElevator state
   return ()
 
@@ -22,14 +20,13 @@ main = do
 -- getData s = read <$> (putStrLn s >> getLine)
 
 runElevator :: SomeState -> IO ()
-runElevator state = do
-  putStrLn "action: " 
+runElevator st = do
+  putStr $ show st ++ ": "
+  hFlush stdout
   name <- getLine
-  let maybeAction = actionFromString state name
-  case maybeAction >>= nextState state of
-    Just state' -> do
-      print state'
-      runElevator state'
+  let maybeAction = actionFromName st name
+  case maybeAction >>= nextState st of
+    Just st' -> runElevator st'
     Nothing -> do
-      putStrLn $ "action " ++ name ++ " not allowed, state did not change"
-      runElevator state
+      putStrLn $ "action " ++ name ++ " not allowed"
+      runElevator st

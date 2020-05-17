@@ -58,11 +58,11 @@ data Action (d :: DoorState) (m :: MoveState) (f :: Nat)
 
   Up     :: Action
               Closed Stopped f
-              Closed GoingUp f
+              Closed GoingUp (NextFloor GoingUp f)
 
   Down   :: Action
               Closed Stopped f
-              Closed GoingDown f
+              Closed GoingDown (NextFloor GoingDown f)
 
   Stop   :: Action  
               Closed m f
@@ -100,90 +100,60 @@ printElevator Wait  = putStrLn "Wait"
 printElevator (a :> prog) = printElevator a >> printElevator prog
 
 
-type ESing d m f = ( Sing (d :: DoorState)
+type State d m f = ( Sing (d :: DoorState)
                    , Sing (m :: MoveState)
                    , Sing (f :: Nat) )
-type ESingI d m f = ( SingI (d :: DoorState)
-                    , SingI (m :: MoveState)
-                    , SingI (f :: Nat) )
-type StateI d m f = ( ESingI d m f
-                    , KnownNat f )
-type ESomeSing = (SomeSing DoorState, SomeSing MoveState, SomeSing Nat)
 
-fromESing :: ESing d m f -> (DoorState, MoveState, Natural)
-fromESing (d,m,f) = (fromSing d, fromSing m, fromSing f)
+fromState :: State d m f -> (DoorState, MoveState, Natural)
+fromState (d,m,f) = (fromSing d, fromSing m, fromSing f)
 
-toESing :: (DoorState, MoveState, Natural) -> ESomeSing
-toESing (d,m,f) = (toSing d, toSing m, toSing f)
+toState :: (DoorState, MoveState, Natural)
+        -> (SomeSing DoorState, SomeSing MoveState, SomeSing Nat)
+toState (d,m,f) = (toSing d, toSing m, toSing f)
 
-esing :: StateI d m f => ESing d m f
-esing = (sing, sing, sing)
-
-withState :: ESing d m f -> ((StateI d m f, KnownNat (NextFloor m f)) => r) -> r
-withState (Sing, m@Sing, f@Sing) func =
-  withKnownNat f $ withKnownNat (sNextFloor m f) func
-
-data SomeState where
-  SomeState :: ESing d m f -> SomeState
+data SomeState = forall d m f. SomeState (State d m f)
 
 instance Show SomeState where
-  show (SomeState s) = show (fromESing s)
+  show (SomeState s) = show (fromState s)
 
 data SomeAction where
-  SomeAction :: ESing d m f
-             -> ESing d' m' f'
+  SomeAction :: State d m f
+             -> State d' m' f'
              -> Action d m f d' m' f'
              -> SomeAction
 
-mkSomeState :: (DoorState, MoveState, Natural) -> SomeState
-mkSomeState st = case toESing st of
-  (SomeSing d, SomeSing m, SomeSing f) -> SomeState (d,m,f)
+mkSomeState :: DoorState -> MoveState -> Natural -> SomeState
+mkSomeState (FromSing d) (FromSing m) (FromSing f) = SomeState (d,m,f)
 
 nextState :: SomeState -> SomeAction -> Maybe SomeState
 nextState (SomeState s1) (SomeAction s2 s3 _) =
-  if fromESing s1 == fromESing s2
+  if fromState s1 == fromState s2
     then Just $ SomeState s3
     else Nothing
 
-someAction :: (StateI d m f, StateI d' m' f')
-           => Action d m f d' m' f'
-           -> SomeAction
-someAction = SomeAction esing esing
 
-actionFromString :: SomeState -> String -> Maybe SomeAction
-actionFromString (SomeState s) name = withState s $ action s name
+actionFromName :: SomeState -> String -> Maybe SomeAction
+actionFromName (SomeState st) = action st
   where
-    action :: (StateI d m f, KnownNat (NextFloor m f)) => ESing d m f -> String -> Maybe SomeAction
-    action (SClosed, SStopped, f) "open" = Just $ someAction $ open f
-      where
-        open :: KnownNat f => Sing f -> Action Closed Stopped f Opened Stopped f
-        open _ = Open
+    someA a s s' = Just $ SomeAction a s s'
 
-    action (SOpened, SStopped, f) "close" = Just $ someAction $ close f
-      where
-        close :: KnownNat f => Sing f -> Action Opened Stopped f Closed Stopped f
-        close _ = Close
+    action :: State d m f -> String -> Maybe SomeAction
+    action s@(SClosed, SStopped, f) "open" =
+      someA s (SOpened, SStopped, f) Open
 
-    action (SClosed, SStopped, f) "up" = Just $ someAction $ up f
-      where
-        up :: KnownNat f => Sing f -> Action Closed Stopped f Closed GoingUp f
-        up _ = Up
+    action s@(SOpened, SStopped, f) "close" =
+      someA s (SClosed, SStopped, f) Close
 
-    action (SClosed, SStopped, f) "down" = Just $ someAction $ down f
-      where
-        down :: KnownNat f => Sing f -> Action Closed Stopped f Closed GoingDown f
-        down _ = Down
+    action s@(SClosed, SStopped, f) "up" =
+      someA s (SClosed, SGoingUp, sNextFloor SGoingUp f) Up
 
-    action (SClosed, m, f) "stop" = Just $ someAction $ stop (m,f)
-      where
-        stop :: KnownNat f => (Sing m, Sing f) -> Action Closed m f Closed Stopped f
-        stop _ = Stop
+    action s@(SClosed, SStopped, f) "down" =
+      someA s (SClosed, SGoingDown, sNextFloor SGoingDown f) Down
 
-    action (d,m,f) "wait" = Just $ someAction $ wait (d,m,f) (sNextFloor m f)
-      where
-        wait :: (KnownNat f, KnownNat (NextFloor m f))
-             => ESing d m f -> Sing (NextFloor m f)
-             -> Action d m f d m (NextFloor m f)
-        wait _ _ = Wait
+    action s@(SClosed, _, f) "stop" =
+      someA s (SClosed, SStopped, f) Stop
+
+    action s@(d, m, f) "wait" =
+      someA s (d, m, sNextFloor m f) Wait
 
     action _ _ = Nothing
