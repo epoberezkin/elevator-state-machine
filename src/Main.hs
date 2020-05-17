@@ -12,7 +12,7 @@ main = do
   -- m :: MoveState <- getData "move state:"
   -- f :: Natural <- getData "floor:"
   -- let state = mkSomeState d m f
-  let state = mkSomeState Opened Stopped 1
+  let state = mkSomeState (Opened, Stopped, 1)
   runElevator state
   return ()
 
