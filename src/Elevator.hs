@@ -4,9 +4,13 @@
 {-# LANGUAGE DataKinds                      #-}
 {-# LANGUAGE DeriveAnyClass                 #-}
 {-# LANGUAGE EmptyCase                      #-}
+{-# LANGUAGE FlexibleContexts               #-}
+{-# LANGUAGE FlexibleInstances              #-}
+{-# LANGUAGE FunctionalDependencies         #-}
 {-# LANGUAGE GADTs                          #-}
 {-# LANGUAGE InstanceSigs                   #-}
 {-# LANGUAGE LambdaCase                     #-}
+{-# LANGUAGE NoMonomorphismRestriction      #-}
 {-# LANGUAGE PartialTypeSignatures          #-}
 {-# LANGUAGE PolyKinds                      #-}
 {-# LANGUAGE RankNTypes                     #-}
@@ -34,12 +38,19 @@ $(singletons [d|
     deriving (Show, Read, Eq)
   data MoveState = Stopped | GoingUp | GoingDown
     deriving (Show, Read, Eq)
+
+  nextFloor :: MoveState -> Nat -> Nat
+  nextFloor Stopped   f = f
+  nextFloor GoingUp   f = f + 1
+  nextFloor GoingDown f = f - 1
   |])
 
-type family NextFloor (m :: MoveState) (f :: Nat) where
-  NextFloor Stopped   f = f
-  NextFloor GoingUp   f = f + 1
-  NextFloor GoingDown f = f - 1
+-- instance KnownNat f => KnownNat (NextFloor Stopped f) where
+--   natSing = withSing $ \f -> SNat f
+-- instance KnownNat f => KnownNat (NextFloor GoingUp f) where
+--   natSing = withSing $ \f -> SNat (f + 1)
+-- instance KnownNat f => KnownNat (NextFloor GoingDown f) where
+--   natSing = withSing $ \f -> SNat (f + 1)
 
 infixr 5 :>
 data Action (d :: DoorState) (m :: MoveState) (f :: Nat)
@@ -118,11 +129,19 @@ mkES _ = EState
 data SomeState where
   SomeState :: ESing d m f -> EState d m f -> SomeState
 
+instance Show SomeState where
+  show (SomeState s _) = let (d,m,f) = fromESing s
+                         in show d ++ ", " ++ show m ++ ", " ++ show f
+
 data SomeAction where
   SomeAction :: ESing d m f -> ESing d' m' f' -> Action d m f d' m' f' -> SomeAction
 
 someState :: ESing d m f -> SomeState
 someState s = SomeState s (mkES s)
+
+mkSomeState :: DoorState -> MoveState -> Natural -> SomeState
+mkSomeState d m f = case toESing (d,m,f) of
+  (SomeSing sd, SomeSing sm, SomeSing sf) -> someState (sd, sm, sf)
 
 nextState :: SomeState -> SomeAction -> Maybe SomeState
 nextState (SomeState s1 _) (SomeAction s2 s3 _) =
@@ -136,13 +155,44 @@ someAction :: (ESingI d m f, ESingI d' m' f')
 someAction = SomeAction esing esing
 
 actionFromString :: SomeState -> String -> Maybe SomeAction
-actionFromString (SomeState (d,m,f) _) name =
-  withKnownNat f $ action (d,m,f) name
+actionFromString (SomeState st@(dr,mv,fl) _) name =
+  withSingI dr $
+  withSingI mv $
+  withKnownNat fl $
+  withKnownNat (sNextFloor mv fl) $
+  action st name
   where
-    action :: KnownNat f => ESing d m f -> String -> Maybe SomeAction
-    action (SClosed, SStopped, f') "open" = Just $ someAction $ open f'
+    action :: (KnownNat f, KnownNat (NextFloor m f), SingI d, SingI m) => ESing d m f -> String -> Maybe SomeAction
+    action (SClosed, SStopped, f) "open" = Just $ someAction $ open f
       where
         open :: KnownNat f => Sing f -> Action Closed Stopped f Opened Stopped f
         open _ = Open
+
+    action (SOpened, SStopped, f) "close" = Just $ someAction $ close f
+      where
+        close :: KnownNat f => Sing f -> Action Opened Stopped f Closed Stopped f
+        close _ = Close
+
+    action (SClosed, SStopped, f) "up" = Just $ someAction $ up f
+      where
+        up :: KnownNat f => Sing f -> Action Closed Stopped f Closed GoingUp f
+        up _ = Up
+
+    action (SClosed, SStopped, f) "down" = Just $ someAction $ down f
+      where
+        down :: KnownNat f => Sing f -> Action Closed Stopped f Closed GoingDown f
+        down _ = Down
+
+    action (SClosed, m, f) "stop" = Just $ someAction $ stop (m,f)
+      where
+        stop :: KnownNat f => (Sing m, Sing f) -> Action Closed m f Closed Stopped f
+        stop _ = Stop
+
+    action s@(_,m,f) "wait" = Just $ someAction $ wait s (sNextFloor m f)
+      where
+        wait :: (KnownNat f, KnownNat (NextFloor m f))
+             => ESing d m f -> Sing (NextFloor m f)
+             -> Action d m f d m (NextFloor m f)
+        wait _ _ = Wait
 
     action _ _ = Nothing
