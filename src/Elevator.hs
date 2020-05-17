@@ -10,7 +10,6 @@
 {-# LANGUAGE GADTs                          #-}
 {-# LANGUAGE InstanceSigs                   #-}
 {-# LANGUAGE LambdaCase                     #-}
-{-# LANGUAGE NoMonomorphismRestriction      #-}
 {-# LANGUAGE PartialTypeSignatures          #-}
 {-# LANGUAGE PolyKinds                      #-}
 {-# LANGUAGE RankNTypes                     #-}
@@ -42,15 +41,9 @@ $(singletons [d|
   nextFloor :: MoveState -> Nat -> Nat
   nextFloor Stopped   f = f
   nextFloor GoingUp   f = f + 1
-  nextFloor GoingDown f = f - 1
+  nextFloor GoingDown f = max (f - 1) 1
   |])
 
--- instance KnownNat f => KnownNat (NextFloor Stopped f) where
---   natSing = withSing $ \f -> SNat f
--- instance KnownNat f => KnownNat (NextFloor GoingUp f) where
---   natSing = withSing $ \f -> SNat (f + 1)
--- instance KnownNat f => KnownNat (NextFloor GoingDown f) where
---   natSing = withSing $ \f -> SNat (f + 1)
 
 infixr 5 :>
 data Action (d :: DoorState) (m :: MoveState) (f :: Nat)
@@ -107,11 +100,14 @@ printElevator Wait  = putStrLn "Wait"
 printElevator (a :> prog) = printElevator a >> printElevator prog
 
 
-data EState (d :: DoorState) (m :: MoveState) (f :: Nat) :: Type where
-  EState :: EState d m f
-
-type ESing d m f = (Sing (d :: DoorState), Sing (m :: MoveState), Sing (f :: Nat))
-type ESingI d m f = (SingI (d :: DoorState), SingI (m :: MoveState), SingI (f :: Nat))
+type ESing d m f = ( Sing (d :: DoorState)
+                   , Sing (m :: MoveState)
+                   , Sing (f :: Nat) )
+type ESingI d m f = ( SingI (d :: DoorState)
+                    , SingI (m :: MoveState)
+                    , SingI (f :: Nat) )
+type StateI d m f = ( ESingI d m f
+                    , KnownNat f )
 type ESomeSing = (SomeSing DoorState, SomeSing MoveState, SomeSing Nat)
 
 fromESing :: ESing d m f -> (DoorState, MoveState, Natural)
@@ -120,49 +116,44 @@ fromESing (d,m,f) = (fromSing d, fromSing m, fromSing f)
 toESing :: (DoorState, MoveState, Natural) -> ESomeSing
 toESing (d,m,f) = (toSing d, toSing m, toSing f)
 
-esing :: ESingI d m f => ESing d m f
+esing :: StateI d m f => ESing d m f
 esing = (sing, sing, sing)
 
-mkES :: ESing d m f -> EState d m f
-mkES _ = EState
+withState :: ESing d m f -> ((StateI d m f, KnownNat (NextFloor m f)) => r) -> r
+withState (Sing, m@Sing, f@Sing) func =
+  withKnownNat f $ withKnownNat (sNextFloor m f) func
 
 data SomeState where
-  SomeState :: ESing d m f -> EState d m f -> SomeState
+  SomeState :: ESing d m f -> SomeState
 
 instance Show SomeState where
-  show (SomeState s _) = let (d,m,f) = fromESing s
-                         in show d ++ ", " ++ show m ++ ", " ++ show f
+  show (SomeState s) = show (fromESing s)
 
 data SomeAction where
-  SomeAction :: ESing d m f -> ESing d' m' f' -> Action d m f d' m' f' -> SomeAction
+  SomeAction :: ESing d m f
+             -> ESing d' m' f'
+             -> Action d m f d' m' f'
+             -> SomeAction
 
-someState :: ESing d m f -> SomeState
-someState s = SomeState s (mkES s)
-
-mkSomeState :: DoorState -> MoveState -> Natural -> SomeState
-mkSomeState d m f = case toESing (d,m,f) of
-  (SomeSing sd, SomeSing sm, SomeSing sf) -> someState (sd, sm, sf)
+mkSomeState :: (DoorState, MoveState, Natural) -> SomeState
+mkSomeState st = case toESing st of
+  (SomeSing d, SomeSing m, SomeSing f) -> SomeState (d,m,f)
 
 nextState :: SomeState -> SomeAction -> Maybe SomeState
-nextState (SomeState s1 _) (SomeAction s2 s3 _) =
+nextState (SomeState s1) (SomeAction s2 s3 _) =
   if fromESing s1 == fromESing s2
-    then Just $ someState s3
+    then Just $ SomeState s3
     else Nothing
 
-someAction :: (ESingI d m f, ESingI d' m' f')
+someAction :: (StateI d m f, StateI d' m' f')
            => Action d m f d' m' f'
            -> SomeAction
 someAction = SomeAction esing esing
 
 actionFromString :: SomeState -> String -> Maybe SomeAction
-actionFromString (SomeState st@(dr,mv,fl) _) name =
-  withSingI dr $
-  withSingI mv $
-  withKnownNat fl $
-  withKnownNat (sNextFloor mv fl) $
-  action st name
+actionFromString (SomeState s) name = withState s $ action s name
   where
-    action :: (KnownNat f, KnownNat (NextFloor m f), SingI d, SingI m) => ESing d m f -> String -> Maybe SomeAction
+    action :: (StateI d m f, KnownNat (NextFloor m f)) => ESing d m f -> String -> Maybe SomeAction
     action (SClosed, SStopped, f) "open" = Just $ someAction $ open f
       where
         open :: KnownNat f => Sing f -> Action Closed Stopped f Opened Stopped f
@@ -188,7 +179,7 @@ actionFromString (SomeState st@(dr,mv,fl) _) name =
         stop :: KnownNat f => (Sing m, Sing f) -> Action Closed m f Closed Stopped f
         stop _ = Stop
 
-    action s@(_,m,f) "wait" = Just $ someAction $ wait s (sNextFloor m f)
+    action (d,m,f) "wait" = Just $ someAction $ wait (d,m,f) (sNextFloor m f)
       where
         wait :: (KnownNat f, KnownNat (NextFloor m f))
              => ESing d m f -> Sing (NextFloor m f)

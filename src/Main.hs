@@ -10,16 +10,16 @@ import Numeric.Natural
 
 main :: IO ()
 main = do
-  d :: DoorState <- getData "door state:"
-  m :: MoveState <- getData "move state:"
-  f :: Natural <- getData "floor:"
-  let state = mkSomeState d m f
+  -- d :: DoorState <- getData "door state:"
+  -- m :: MoveState <- getData "move state:"
+  -- f :: Natural <- getData "floor:"
+  let state = mkSomeState (Opened, Stopped, 1)
   print state
   runElevator state
   return ()
 
-getData :: Read a => String -> IO a
-getData s = read <$> (putStrLn s >> getLine)
+-- getData :: Read a => String -> IO a
+-- getData s = read <$> (putStrLn s >> getLine)
 
 runElevator :: SomeState -> IO ()
 runElevator state = do
