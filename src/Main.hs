@@ -2,31 +2,36 @@
 
 module Main where
 
+import Data.Singletons
 import Elevator
-import Numeric.Natural
+-- import Numeric.Natural
 import System.IO
+import System.IO.Interact
 
 main :: IO ()
 main = do
-  -- d :: DoorState <- getData "door state:"
-  -- m :: MoveState <- getData "move state:"
-  -- f :: Natural <- getData "floor:"
-  -- let state = mkSomeState d m f
-  let state = mkSomeState (Opened, Stopped, 1)
-  runElevator state
-  return ()
+  let elevator = toSing (Opened, Stopped, 0)
+  print elevator
+  replState runElevator elevator
 
--- getData :: Read a => String -> IO a
--- getData s = read <$> (putStrLn s >> getLine)
+runElevator :: String -> SomeSing Elevator -> (String, SomeSing Elevator)
+runElevator act st =
+  case actionFromString act st >>= finalState st of
+    Just st' -> (show st', st')
+    Nothing -> ("action " ++ act ++ " not allowed", st)
+--
+-- main :: IO ()
+-- main = do
+--   let elevator = toDep (Opened, Stopped, 0)
+--   runElevator elevator
 
-runElevator :: SomeState -> IO ()
-runElevator st = do
-  putStr $ show st ++ ": "
-  hFlush stdout
-  name <- getLine
-  let maybeAction = actionFromName st name
-  case maybeAction >>= nextState st of
-    Just st' -> runElevator st'
-    Nothing -> do
-      putStrLn $ "action " ++ name ++ " not allowed"
-      runElevator st
+-- runElevator :: SomeElevator -> IO ()
+-- runElevator st = do
+--   putStrLn $ show st ++ "\n> "
+--   hFlush stdout
+--   act <- getLine
+--   case actionFromString act st >>= finalState st of
+--     Just st' -> runElevator st'
+--     Nothing -> do
+--       putStrLn $ "action " ++ act ++ " not allowed"
+--       runElevator st

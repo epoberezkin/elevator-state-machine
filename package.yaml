@@ -1,22 +1,21 @@
-name:                finite-state-machine-post
-version:             0.1.0.0
+name: finite-state-machine-post
+version: 0.1.0.0
 #synopsis:
 #description:
-homepage:            https://github.com/githubuser/finite-state-machine-post#readme
-license:             BSD3
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2020 Author name here
-category:            Web
+homepage: https://github.com/githubuser/finite-state-machine-post#readme
+license: MIT
+author: Evgeny Poberezkin
+maintainer: evgeny@poberezkin.com
+copyright: 2020 Evgeny Poberezkin
 extra-source-files:
-- README.md
+  - README.md
 
 dependencies:
   - base >= 4.7 && < 5
-  - lens
-  - singletons
+  - interact == 0.2.*
+  - singletons == 2.6.*
 
 executables:
   finite-state-machine-post:
-    source-dirs:      src
-    main:             Main.hs
+    source-dirs: src
+    main: Main.hs
