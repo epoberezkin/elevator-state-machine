@@ -1,11 +1,14 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wall -Werror=incomplete-patterns #-}
+{-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
 
 module Problems where
 
@@ -16,61 +19,68 @@ import Data.Singletons.TypeLits
 import Elevator
 import GHC.Natural
 
-infixl 2 >>:
+-- Problem #1
 
-class ActionSequence a1 a2 a3 | a1 a2 -> a3 where
-  (>>:) :: a1 -> a2 -> a3
+infixr 2 >>:
 
-instance ActionSequence (Action s1 s2) (Action s2 s3) (Action s1 s3) where
-  Skip >>: a = a
-  a >>: Skip = a
-  a1 >>: a2 = a1 :>> a2
+class ActionSequence a1 a2 where
+  (>>:) :: a1 -> a2 -> Maybe SomeAction
 
-instance ActionSequence SomeAction SomeAction (Maybe SomeAction) where
-  (SomeAction a1 s1 s2) >>: (SomeAction a2 s2' s3)
-    | Proved Refl <- s2 %~ s2' = Just $ SomeAction (a1 >>: a2) s1 s3
-    | otherwise = Nothing
+instance ActionSequence SomeAction SomeAction where
+  (SomeAction a1 s1 s2) >>: (SomeAction a2 s2' s3) =
+    case s2 %~ s2' of
+      Proved Refl -> Just $ SomeAction (a1 :>> a2) s1 s3
+      _ -> Nothing
 
-instance (SingI s1, SingI s2) => ActionSequence (Action s1 s2) SomeAction (Maybe SomeAction) where
-  (>>:) a = (>>:) $ SomeAction a (sing @s1) (sing @s2)
+-- Problem #2
 
-instance Show (Action s s') where
-  show Open = "open"
-  show Close = "close"
-  show Up = "up"
-  show Down = "down"
-  show Stop = "stop"
-  show Wait = "wait"
-  show Skip = ""
-  show (a :>> prog) = show a ++ " " ++ show prog
+elevatorProgram :: SomeSing Elevator -> [String] -> Maybe SomeAction
+elevatorProgram _ [] = Nothing
+elevatorProgram st [x] = actionFromString x st
+elevatorProgram st (x : xs) = do
+  a <- actionFromString x st
+  st' <- finalState st a
+  as <- elevatorProgram st' xs
+  a >>: as
 
-instance Show SomeAction where
-  show (SomeAction a s s') =
-    show a ++ ": "
-      ++ show (fromSing s)
-      ++ "->"
-      ++ show (fromSing s')
+-- Problem #3
+-- see Elevator.hs
+
+-- Problem #4
+-- also see Main.hs - action "floor n" is added to REPL
+instance ActionSequence (Maybe SomeAction) (Maybe SomeAction) where
+  Nothing >>: _ = Nothing
+  _ >>: Nothing = Nothing
+  Just a1 >>: Just a2 = a1 >>: a2
 
 elevatorToFloor :: SomeSing Elevator -> Natural -> Maybe SomeAction
-elevatorToFloor (SomeSing st) (FromSing f') = program st f'
+elevatorToFloor (SomeSing st) (FromSing flr) = actions st flr
   where
+    act :: Action s s' -> Sing s -> Sing s' -> Maybe SomeAction
     act a s1 s2 = Just $ SomeAction a s1 s2
-    program :: forall s f'. Sing (s :: Elevator) -> Sing (f' :: Nat) -> Maybe SomeAction
-    program s@(STuple3 SOpened SStopped f) f'
-      | Proved Refl <- f %~ f' =
-        act Skip s s
-      | otherwise = Nothing --move Close s f f'
-    program s@(STuple3 SClosed SStopped f) f'
-      | Proved Refl <- f %~ f' =
-        act Open s (STuple3 SOpened SStopped f)
-      | otherwise = Nothing -- move Skip s f f'
-    program _ _ = Nothing
--- move :: Action s s' -> Sing (s :: Elevator) -> Sing (f :: Nat) -> Sing (f' :: Nat) -> Maybe SomeAction
--- move a s f f' =
---   act (a >>: upOrDown) s s' ?:>>? program s' f'
---   where
---     (upOrDown, s')
---       | Proved Refl <- (f' %> f) %~ STrue =
---         (Up, STuple3 SClosed SGoingUp (sNextFloor SGoingUp f))
---       | otherwise =
---         (Down, STuple3 SClosed SGoingDown (sNextFloor SGoingDown f))
+    actions :: forall s f'. Sing (s :: Elevator) -> SNat f' -> Maybe SomeAction
+    actions s@(STuple3 SOpened SStopped f) f' =
+      case sCompare f' f of
+        SEQ -> Nothing
+        SGT ->
+          act (Close :>> Move SUp) s (state' SUp f)
+            >>: wait SUp f f'
+        SLT -> case f %== SNat @0 of -- this check is required to satisfy the type restriction added in Problem #1
+          SFalse ->
+            act (Close :>> Move SDown) s (state' SDown f)
+              >>: wait SDown f f'
+          STrue -> Nothing
+    actions _ _ = Nothing
+    wait :: SMoveState m -> SNat f -> SNat f' -> Maybe SomeAction
+    wait m f f' = wait_ (sNextMoveState m f) (sNextFloor m f) f'
+    wait_ :: SMoveState m -> SNat f -> SNat f' -> Maybe SomeAction
+    wait_ SStopped f _ =
+      act Open (STuple3 SClosed SStopped f) (STuple3 SOpened SStopped f)
+    wait_ m f f' = case f %~ f' of
+      Proved Refl ->
+        act (Stop :>> Open) (STuple3 SClosed m f) (STuple3 SOpened SStopped f)
+      _ ->
+        act Wait (STuple3 SClosed m f) (state' m f)
+          >>: wait m f f'
+    state' :: SMoveState m -> SNat f -> STuple3 '(Closed, NextMoveState m f, NextFloor m f)
+    state' m f = STuple3 SClosed (sNextMoveState m f) (sNextFloor m f)
