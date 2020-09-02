@@ -1,8 +1,8 @@
-name: finite-state-machine-post
+name: elevator-state-machine
 version: 0.1.0.0
 #synopsis:
 #description:
-homepage: https://github.com/githubuser/finite-state-machine-post#readme
+homepage: https://github.com/epoberezkin/elevator-state-machine#readme
 license: MIT
 author: Evgeny Poberezkin
 maintainer: evgeny@poberezkin.com

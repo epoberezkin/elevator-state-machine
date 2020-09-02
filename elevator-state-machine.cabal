@@ -1,0 +1,33 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.31.2.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: e9c673f92a11e6a7e852fb1b1992546722c99aeecc068872057fcabd9ed58646
+
+name:           elevator-state-machine
+version:        0.1.0.0
+homepage:       https://github.com/epoberezkin/elevator-state-machine#readme
+author:         Evgeny Poberezkin
+maintainer:     evgeny@poberezkin.com
+copyright:      2020 Evgeny Poberezkin
+license:        MIT
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+
+executable finite-state-machine-post
+  main-is: Main.hs
+  other-modules:
+      Elevator
+      Problems
+      Paths_elevator_state_machine
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , interact ==0.2.*
+    , singletons ==2.6.*
+  default-language: Haskell2010
